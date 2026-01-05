@@ -10,24 +10,57 @@ def get_ports():
     ports = [p.device for p in serial.tools.list_ports.comports()]
     return ports if ports else ["No Ports Found"]
 
-def connect(port):
+def connect(port, sbb, speed, ramp, rev, hold):
     global ser
     if not port or port == "No Ports Found":
-        return "Please select a valid port"
+        return "Please select a valid port", sbb, speed, ramp, rev, hold
     try:
-        ser = serial.Serial(port, 115200, timeout=0.1)
-        return f"Connected to {port}"
+        ser = serial.Serial(port, 115200, timeout=1)
+        time.sleep(2)  # Wait for Arduino to reset
+        sbb, speed, ramp, rev, hold = load_settings(sbb, speed, ramp, rev, hold)
+        return f"Connected to {port}", sbb, speed, ramp, rev, hold
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error: {e}", sbb, speed, ramp, rev, hold
 
-def save_settings(sbb, speed, ramp, rev):
-    if ser:
-        ser.write(f"SET_SBB:{sbb}\n".encode())
-        ser.write(f"SET_SPEED:{speed}\n".encode())
-        ser.write(f"SET_RAMP:{ramp}\n".encode())
-        ser.write(f"SET_DIR:{1 if rev else 0}\n".encode())
-        return "Settings Saved to Hardware!"
-    return "Not Connected"
+def load_settings(sbb, speed, ramp, rev, hold):
+    if not ser:
+        return sbb, speed, ramp, rev, hold
+    try:
+        ser.write(b"GET_ALL\n")
+        line = ser.readline().decode('utf-8', errors='ignore').strip()
+        
+        # Expected format: SBB:...,SPEED:...,RAMP:...,DIR:...,HOLD:...
+        parts = line.split(',')
+        if len(parts) == 5:
+            new_sbb = int(parts[0].split(':')[1])
+            new_speed = int(parts[1].split(':')[1])
+            new_ramp = int(parts[2].split(':')[1])
+            new_rev = (parts[3].split(':')[1] == '1')
+            new_hold = int(parts[4].split(':')[1])
+            return new_sbb, new_speed, new_ramp, new_rev, new_hold
+    except Exception as e:
+        print(f"Could not parse settings: {e}, line: '{line}'") # for debugging
+    return sbb, speed, ramp, rev, hold
+
+def save_settings(sbb, speed, ramp, rev, hold):
+    if not ser:
+        return "Not Connected"
+    
+    ser.reset_input_buffer()
+
+    def send_and_ack(cmd):
+        ser.write(cmd.encode())
+        ack = ser.readline().decode('utf-8', errors='ignore').strip()
+        print(f"Sent: {cmd.strip()}, Received: {ack}")
+        return ack
+
+    send_and_ack(f"SET_SBB:{int(sbb)}\n")
+    send_and_ack(f"SET_SPEED:{int(speed)}\n")
+    send_and_ack(f"SET_RAMP:{int(ramp)}\n")
+    send_and_ack(f"SET_DIR:{1 if rev else 0}\n")
+    send_and_ack(f"SET_HOLD:{int(hold)}\n")
+    
+    return "Settings Saved to Hardware!"
 
 def start_loading(amount, progress=gr.Progress()):
     if not ser:
@@ -69,9 +102,10 @@ with gr.Blocks(title="BB Loader Pro") as demo:
 
             gr.Markdown("### ⚙️ Settings")
             sbb_input = gr.Number(value=100, label="Steps per BB")
-            speed_slider = gr.Slider(200, 2000, value=800, label="Step Delay (Speed)")
-            ramp_slider = gr.Slider(0, 2000, value=300, label="Ramp Steps")
+            speed_slider = gr.Slider(10, 2000, value=800, label="Step Delay (Speed)")
+            ramp_slider = gr.Slider(0, 5000, value=500, label="Ramp Steps (more = smoother)")
             rev_check = gr.Checkbox(label="Reverse Stepper")
+            hold_slider = gr.Slider(0, 60, value=5, label="Stepper Hold Time (s)")
             save_btn = gr.Button("Save to EEPROM")
 
         with gr.Column(scale=2):
@@ -110,8 +144,10 @@ with gr.Blocks(title="BB Loader Pro") as demo:
             progress_text = gr.Textbox(label="Last Status")
 
     # --- LOGIC ---
-    conn_btn.click(connect, inputs=port_dropdown, outputs=status_label)
-    save_btn.click(save_settings, inputs=[sbb_input, speed_slider, ramp_slider, rev_check], outputs=status_label)
+    conn_btn.click(connect, 
+                   inputs=[port_dropdown, sbb_input, speed_slider, ramp_slider, rev_check, hold_slider], 
+                   outputs=[status_label, sbb_input, speed_slider, ramp_slider, rev_check, hold_slider])
+    save_btn.click(save_settings, inputs=[sbb_input, speed_slider, ramp_slider, rev_check, hold_slider], outputs=status_label)
 
     # Preset Logic
     btn_150.click(lambda: 150, outputs=bb_amount)
