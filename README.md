@@ -62,3 +62,8 @@ The interface will open in your web browser (usually at http://127.0.0.1:7860).
 
 ---
 *Note: This project is intended for hobbyist use. Ensure your feeder mechanism is clear of debris to prevent mechanical failure.*
+TODO:
+1. **Screen:** Add a screen
+2. **Add Buttons n Stuff:** Add buttons to use the screen (maybe also a recycle 3D printer parts thing)
+3. **Finalize 3D Design:** Finalize and test 3D Printed design.
+4. **Release:** Release eveerything once working.
